@@ -62,6 +62,23 @@ class TestImports:
 
         assert callable(cli_main)
 
+    def test_import_ssu_module(self):
+        from actr.ssu import (
+            ThreeSampleSSU,
+            SSUSample,
+            SSUConfig,
+            SSUResult,
+            EmbeddingSimilarity,
+            VerbalizedConfidenceExtractor,
+        )
+
+        assert ThreeSampleSSU is not None
+        assert SSUSample is not None
+        assert SSUConfig is not None
+        assert SSUResult is not None
+        assert EmbeddingSimilarity is not None
+        assert VerbalizedConfidenceExtractor is not None
+
 
 # ---------------------------------------------------------------------------
 # Data structure tests

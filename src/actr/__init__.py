@@ -15,6 +15,14 @@ from actr.data import (
     VerificationResult,
 )
 from actr.config import ACTRConfig
+from actr.ssu import (
+    ThreeSampleSSU,
+    SSUSample,
+    SSUConfig,
+    SSUResult,
+    EmbeddingSimilarity,
+    VerbalizedConfidenceExtractor,
+)
 
 __all__ = [
     "__version__",
@@ -24,4 +32,10 @@ __all__ = [
     "CalibrationRecord",
     "VerificationResult",
     "ACTRConfig",
+    "ThreeSampleSSU",
+    "SSUSample",
+    "SSUConfig",
+    "SSUResult",
+    "EmbeddingSimilarity",
+    "VerbalizedConfidenceExtractor",
 ]
