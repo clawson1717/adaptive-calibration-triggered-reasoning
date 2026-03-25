@@ -8,6 +8,10 @@ Each module in this package implements a mode-specific reasoning pipeline:
 
 from __future__ import annotations
 
+from actr.pipelines.boundary_enforcement import (
+    BoundaryEnforcementLayer,
+    BoundaryEnforcementConfig,
+)
 from actr.pipelines.fast_pipeline import (
     FastModePipeline,
     FastPipelineConfig,
@@ -22,6 +26,8 @@ from actr.pipelines.slow_pipeline import (
 )
 
 __all__ = [
+    "BoundaryEnforcementLayer",
+    "BoundaryEnforcementConfig",
     "FastModePipeline",
     "FastPipelineConfig",
     "ModerateModePipeline",
