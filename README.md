@@ -15,7 +15,7 @@ Most LLM systems apply a fixed reasoning strategy regardless of query difficulty
 - [x] Step 4: Reasoning Mode Controller
 - [x] Step 5: Fast Mode pipeline
 - [x] Step 6: Moderate Mode pipeline
-- [ ] Step 7: Slow Mode pipeline
+- [x] Step 7: Slow Mode pipeline
 - [ ] Step 8: Box Maze Boundary Enforcement Layer
 - [ ] Step 9: Integration + end-to-end tests
 - [ ] Step 10: Calibration evaluation
