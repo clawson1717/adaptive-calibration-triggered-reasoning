@@ -74,8 +74,8 @@ Query Input
 ## 10-Step Implementation Plan
 
 - [ ] **Step 1:** Project scaffolding — data structures, CLI interface, config, first-pass test suite
-- [ ] **Step 2:** Three-Sample Semantic Uncertainty Engine (3-SSU) — three sampler variants, embedding-based consistency, verbalized confidence regex, α-weighted fusion
-- [ ] **Step 3:** Temperature-scaled calibration — Platt scaling / temperature tuning on held-out calibration set
+- [x] **Step 2:** Three-Sample Semantic Uncertainty Engine (3-SSU) — three sampler variants, embedding-based consistency, verbalized confidence regex, α-weighted fusion
+- [x] **Step 3:** Temperature-scaled calibration — Platt scaling / temperature tuning on held-out calibration set
 - [ ] **Step 4:** Reasoning Mode Controller — threshold-based mode selector, mode transition logic
 - [ ] **Step 5:** Fast Mode pipeline — single-pass generation, shallow heuristic check, confidence tag
 - [ ] **Step 6:** Moderate Mode pipeline — two-pass generation with conditional failure-triggered KG

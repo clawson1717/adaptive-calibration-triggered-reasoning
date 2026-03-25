@@ -11,7 +11,7 @@ Most LLM systems apply a fixed reasoning strategy regardless of query difficulty
 - [x] Project planned
 - [x] Step 1: Project scaffolding and data structures
 - [x] Step 2: Three-Sample Semantic Uncertainty Engine (3-SSU)
-- [ ] Step 3: Temperature-scaled calibration
+- [x] Step 3: Temperature-scaled calibration
 - [ ] Step 4: Reasoning Mode Controller
 - [ ] Step 5: Fast Mode pipeline
 - [ ] Step 6: Moderate Mode pipeline
