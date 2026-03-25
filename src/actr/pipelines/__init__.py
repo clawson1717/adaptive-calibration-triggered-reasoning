@@ -16,10 +16,16 @@ from actr.pipelines.moderate_pipeline import (
     ModerateModePipeline,
     ModeratePipelineConfig,
 )
+from actr.pipelines.slow_pipeline import (
+    SlowModePipeline,
+    SlowPipelineConfig,
+)
 
 __all__ = [
     "FastModePipeline",
     "FastPipelineConfig",
     "ModerateModePipeline",
     "ModeratePipelineConfig",
+    "SlowModePipeline",
+    "SlowPipelineConfig",
 ]
