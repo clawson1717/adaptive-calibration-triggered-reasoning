@@ -78,7 +78,7 @@ Query Input
 - [x] **Step 3:** Temperature-scaled calibration — Platt scaling / temperature tuning on held-out calibration set
 - [x] **Step 4:** Reasoning Mode Controller — threshold-based mode selector, mode transition logic
 - [ ] **Step 5:** Fast Mode pipeline — single-pass generation, shallow heuristic check, confidence tag
-- [ ] **Step 6:** Moderate Mode pipeline — two-pass generation with conditional failure-triggered KG
+- [x] **Step 6:** Moderate Mode pipeline — two-pass generation with conditional failure-triggered KG
 - [ ] **Step 7:** Slow Mode pipeline — three-pass with full knowledge grounding and deep verification
 - [ ] **Step 8:** Box Maze Boundary Enforcement Layer — memory grounding gate, inference safety bounds, envelope propagation
 - [ ] **Step 9:** Integration + end-to-end tests, CLI `reason` command with confidence output, `benchmark` command
