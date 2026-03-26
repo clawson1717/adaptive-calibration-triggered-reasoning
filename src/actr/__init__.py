@@ -30,6 +30,12 @@ from actr.benchmark import (
     BenchmarkSummary,
     BUILTIN_BENCHMARK_QUERIES,
 )
+from actr.evaluation import (
+    CalibrationEvaluator,
+    CalibrationEvaluationMetrics,
+    EVALUATION_BENCHMARK_QUERIES,
+    run_calibration_evaluation,
+)
 
 __all__ = [
     "__version__",
@@ -50,4 +56,8 @@ __all__ = [
     "BenchmarkResult",
     "BenchmarkSummary",
     "BUILTIN_BENCHMARK_QUERIES",
+    "CalibrationEvaluator",
+    "CalibrationEvaluationMetrics",
+    "EVALUATION_BENCHMARK_QUERIES",
+    "run_calibration_evaluation",
 ]
