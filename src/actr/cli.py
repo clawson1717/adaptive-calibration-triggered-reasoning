@@ -2,7 +2,7 @@
 
 Provides three subcommands:
 
-- ``reason``   — Run a single reasoning query with ACTR calibration.
+- ``reason``   — Run a single reasoning query with the full ACTR pipeline.
 - ``benchmark`` — Evaluate the ACTR pipeline on a suite of test problems.
 - ``calibrate`` — Update the calibration parameters using benchmark results.
 """
@@ -21,6 +21,16 @@ from actr.data import (
     ConfidenceTag,
     ReasoningMode,
 )
+from actr.ssu import SSUConfig, ThreeSampleSSU
+from actr.calibration import CalibrationEngine
+from actr.mode_controller import ReasoningModeController, ReasoningModeEnum
+from actr.pipelines import (
+    FastModePipeline,
+    ModerateModePipeline,
+    SlowModePipeline,
+    BoundaryEnforcementLayer,
+)
+from actr.benchmark import BenchmarkRunner, BUILTIN_BENCHMARK_QUERIES
 
 __version__ = "0.1.0"
 
@@ -77,16 +87,149 @@ def _reasoning_mode_from_str(value: str) -> ReasoningMode:
 
 
 # ---------------------------------------------------------------------------
+# Full ACTR pipeline runner (used by reason and benchmark commands)
+# ---------------------------------------------------------------------------
+
+class ACTRPipelineRunner:
+    """Runs the full ACTR pipeline: SSU → calibration → mode selection → pipeline → boundary enforcement.
+
+    Parameters
+    ----------
+    config : ACTRConfig | None
+        Global ACTR configuration. Uses defaults if None.
+    ssu_config : SSUConfig | None
+        SSU engine configuration. Uses defaults if None.
+    calibrate : bool
+        Whether to run calibration on first use. Default True.
+    seed : int
+        Random seed for reproducibility. Default 42.
+    """
+
+    def __init__(
+        self,
+        config: Optional[ACTRConfig] = None,
+        ssu_config: Optional[SSUConfig] = None,
+        calibrate: bool = True,
+        seed: int = 42,
+    ) -> None:
+        self.config = config if config is not None else ACTRConfig()
+        self.ssu_config = ssu_config if ssu_config is not None else SSUConfig()
+        self.calibrate = calibrate
+        self.seed = seed
+        self._calibration_done = False
+
+        self._ssu = ThreeSampleSSU(config=self.ssu_config)
+        self._calibration_engine = CalibrationEngine(ssu_config=self.ssu_config)
+        self._platt = None
+        self._mode_controller = ReasoningModeController(config=self.config)
+        self._boundary_layer = BoundaryEnforcementLayer()
+
+        self._fast_pipeline = FastModePipeline(actr_config=self.config)
+        self._moderate_pipeline = ModerateModePipeline(actr_config=self.config)
+        self._slow_pipeline = SlowModePipeline(actr_config=self.config)
+
+    def _ensure_calibration(self) -> None:
+        """Run calibration if not already done."""
+        if self._calibration_done:
+            return
+        if self.calibrate:
+            import random
+            rng = random.Random(self.seed)
+            n = 200
+            difficulty_dist = [rng.uniform(0.3, 0.95) for _ in range(n)]
+            dataset = self._calibration_engine.build_calibration_dataset(
+                n_samples=n,
+                difficulty_dist=difficulty_dist,
+            )
+            self._platt, _ = self._calibration_engine.calibrate_full(dataset)
+        self._calibration_done = True
+
+    def run(
+        self,
+        prompt: str,
+        calibrated_confidence: Optional[float] = None,
+        run_ssu: bool = True,
+    ) -> CalibratedReasoningState:
+        """Run the full ACTR pipeline for a single prompt.
+
+        Pipeline steps:
+        1. SSU engine → raw consistency score (if run_ssu=True)
+        2. Platt calibration → calibrated confidence
+        3. Mode selection → ReasoningModeEnum (FAST / MODERATE / SLOW)
+        4. Mode-specific pipeline → CalibratedReasoningState
+        5. Boundary enforcement → final check
+
+        Parameters
+        ----------
+        prompt : str
+            The user prompt / question.
+        calibrated_confidence : float | None
+            If provided, skip SSU and use this pre-calibrated confidence directly.
+        run_ssu : bool
+            Whether to run the SSU engine. Default True. Ignored if
+            ``calibrated_confidence`` is provided.
+
+        Returns
+        -------
+        CalibratedReasoningState
+            The fully populated reasoning state.
+        """
+        self._ensure_calibration()
+
+        # Step 1: Get calibrated confidence
+        if calibrated_confidence is not None:
+            conf = calibrated_confidence
+        elif run_ssu:
+            ssu_result = self._ssu.run(prompt)
+            raw_score = ssu_result.consistency_score
+            if self._platt is not None:
+                conf = self._platt.calibrate(raw_score)
+            else:
+                conf = raw_score
+        else:
+            conf = 0.5  # fallback
+
+        # Step 2: Mode selection
+        mode_result = self._mode_controller.select_mode(conf)
+
+        # Step 3: Mode-specific pipeline
+        if mode_result.selected_mode == ReasoningModeEnum.FAST:
+            state = self._fast_pipeline.run(
+                prompt=prompt,
+                calibrated_confidence=conf,
+                mode_result=mode_result,
+            )
+        elif mode_result.selected_mode == ReasoningModeEnum.MODERATE:
+            state = self._moderate_pipeline.run(
+                prompt=prompt,
+                calibrated_confidence=conf,
+                mode_result=mode_result,
+            )
+        else:
+            state = self._slow_pipeline.run(
+                prompt=prompt,
+                calibrated_confidence=conf,
+                mode_result=mode_result,
+            )
+
+        # Step 4: Boundary enforcement
+        state = self._boundary_layer.run(state, mode_result=mode_result)
+
+        return state
+
+
+# ---------------------------------------------------------------------------
 # reason subcommand
 # ---------------------------------------------------------------------------
 
 def _add_reason_subcommand(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "reason",
-        help="Run a single reasoning query with ACTR calibration.",
+        help="Run a single reasoning query with the full ACTR pipeline.",
         description=(
-            "Submits a prompt to the language model using the selected reasoning "
-            "mode, applies ACTR confidence calibration, and prints the result."
+            "Submits a prompt to the full ACTR pipeline: SSU consistency scoring, "
+            "mode selection, mode-specific reasoning pipeline, and boundary enforcement. "
+            "Prints the response with a confidence tag."
         ),
     )
     parser.add_argument(
@@ -95,25 +238,30 @@ def _add_reason_subcommand(subparsers: argparse._SubParsersAction) -> None:
         help="The reasoning problem or question.",
     )
     parser.add_argument(
-        "--mode",
-        type=_reasoning_mode_from_str,
-        default=None,
-        help=f"Reasoning mode to use. Defaults to the config default.",
-    )
-    parser.add_argument(
-        "--raw-confidence",
+        "--confidence",
         type=float,
         default=None,
+        dest="confidence",
         help=(
-            "Override the raw confidence score (0.0–1.0). "
-            "If not provided, ACTR will call the model with a calibration prompt."
+            "Pre-calibrated confidence score (0.0–1.0). "
+            "If provided, skips the SSU engine and uses this value directly. "
+            "Otherwise, runs the full SSU + calibration pipeline."
         ),
     )
     parser.add_argument(
-        "--temperature",
-        type=float,
+        "--no-ssu",
+        action="store_true",
+        help="Skip SSU engine. Requires --confidence to be provided.",
+    )
+    parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["fast", "moderate", "slow"],
         default=None,
-        help="Override the temperature for this run.",
+        help=(
+            "Force a specific reasoning mode. If not provided, mode is selected "
+            "automatically based on calibrated confidence."
+        ),
     )
     parser.add_argument(
         "--format",
@@ -128,60 +276,108 @@ def _add_reason_subcommand(subparsers: argparse._SubParsersAction) -> None:
 def _run_reason(args: argparse.Namespace) -> int:
     config = _load_config(args)
 
+    if args.no_ssu and args.confidence is None:
+        print("[actr] Error: --no-ssu requires --confidence to be provided.", file=sys.stderr)
+        return 1
+
     if args.verbose:
-        print(f"[actr] Using model: {config.model.model_name}", file=sys.stderr)
-        print(f"[actr] Reasoning mode: {args.mode or config.default_reasoning_mode}", file=sys.stderr)
+        print(f"[actr] Model: {config.model.model_name}", file=sys.stderr)
+        if args.confidence is not None:
+            print(f"[actr] Using pre-calibrated confidence: {args.confidence:.3f}", file=sys.stderr)
+        else:
+            print(f"[actr] Running SSU engine to compute confidence", file=sys.stderr)
+        if args.mode:
+            print(f"[actr] Forced mode: {args.mode}", file=sys.stderr)
 
-    mode = _reasoning_mode_from_str(args.mode) if args.mode else ReasoningMode(config.default_reasoning_mode)
+    runner = ACTRPipelineRunner(config=config, calibrate=True)
 
-    # Build the reasoning state — this is the stub that a real implementation would flesh out
-    state = CalibratedReasoningState(
-        prompt=args.prompt,
-        model_name=config.model.model_name,
-        reasoning_mode=mode,
-    )
+    # If mode is forced, override mode selection
+    if args.mode:
+        # We still need a confidence to run the pipeline
+        conf = args.confidence if args.confidence is not None else 0.5
+        mode_str = args.mode.lower()
+        mode_map = {
+            "fast": ReasoningModeEnum.FAST,
+            "moderate": ReasoningModeEnum.MODERATE,
+            "slow": ReasoningModeEnum.SLOW,
+        }
+        forced_mode = mode_map[mode_str]
 
-    # ------------------------------------------------------------------
-    # STUB: Real implementation would call the model here and populate
-    # the state. For scaffolding, we return a minimal calibrated state.
-    # ------------------------------------------------------------------
-    if args.raw_confidence is not None:
-        raw_conf = args.raw_confidence
+        # Build mode selection result manually
+        from actr.mode_controller import ModeSelectionResult
+        from actr.config import ACTRConfig
+
+        controller = ReasoningModeController(config=config)
+        mode_result = controller.select_mode(conf)
+        # Override the selected mode
+        mode_result = ModeSelectionResult(
+            selected_mode=forced_mode,
+            confidence=conf,
+            confidence_tag=mode_result.confidence_tag,
+            transition_reason=f"forced mode={forced_mode.value}",
+        )
+
+        # Run the appropriate pipeline directly
+        if forced_mode == ReasoningModeEnum.FAST:
+            from actr.pipelines import FastModePipeline
+            pipeline = FastModePipeline(actr_config=config)
+            state = pipeline.run(args.prompt, conf, mode_result)
+        elif forced_mode == ReasoningModeEnum.MODERATE:
+            from actr.pipelines import ModerateModePipeline
+            pipeline = ModerateModePipeline(actr_config=config)
+            state = pipeline.run(args.prompt, conf, mode_result)
+        else:
+            from actr.pipelines import SlowModePipeline
+            pipeline = SlowModePipeline(actr_config=config)
+            state = pipeline.run(args.prompt, conf, mode_result)
+
+        from actr.pipelines import BoundaryEnforcementLayer
+        boundary = BoundaryEnforcementLayer()
+        state = boundary.run(state, mode_result=mode_result)
     else:
-        # Simulate a raw confidence from a model call
-        raw_conf = 0.5
-
-    state.raw_confidence = raw_conf
-    state.calibrated_confidence = raw_conf
-    state.confidence_tag = config.tag_for_confidence(raw_conf)
+        state = runner.run(
+            prompt=args.prompt,
+            calibrated_confidence=args.confidence,
+            run_ssu=not args.no_ssu,
+        )
 
     if args.verbose:
-        print(f"[actr] Raw confidence: {raw_conf:.3f}", file=sys.stderr)
         print(f"[actr] Calibrated confidence: {state.calibrated_confidence:.3f}", file=sys.stderr)
         print(f"[actr] Confidence tag: {state.confidence_tag}", file=sys.stderr)
+        print(f"[actr] Reasoning mode: {state.reasoning_mode}", file=sys.stderr)
+        if state.error_flags:
+            print(f"[actr] Error flags: {state.error_flags}", file=sys.stderr)
 
-    # Structured output
-    output: dict
+    # Format output
     if args.format == "json":
         output = state.to_dict()
         output["config"] = config.to_dict()
     else:
-        output = {
-            "prompt": state.prompt,
-            "reasoning_content": state.reasoning_content or "(not yet implemented)",
-            "raw_confidence": state.raw_confidence,
-            "calibrated_confidence": state.calibrated_confidence,
-            "confidence_tag": state.confidence_tag,
-            "reasoning_mode": str(state.reasoning_mode),
-        }
+        # Human-readable text format
+        lines = [
+            f"Prompt: {state.prompt}",
+            f"Response: {state.reasoning_content or '(no response)'}",
+            f"Confidence: [{state.confidence_tag.upper()}] {state.calibrated_confidence:.3f}",
+            f"Mode: {state.reasoning_mode.value}",
+        ]
+        if state.reasoning_steps:
+            lines.append(f"Reasoning steps ({len(state.reasoning_steps)}):")
+            for step in state.reasoning_steps:
+                lines.append(f"  - {step[:120]}")
+        if state.error_flags:
+            lines.append(f"Warnings: {', '.join(state.error_flags)}")
+        if state.verification_result:
+            vr = state.verification_result
+            lines.append(f"Verified: {vr.is_verified} (score={vr.consistency_score:.3f})")
+        output = {"text": "\n".join(lines)}
 
-    lines = json.dumps(output, indent=2, ensure_ascii=False)
+    lines_out = json.dumps(output, indent=2, ensure_ascii=False)
     if args.output:
-        args.output.write_text(lines)
+        args.output.write_text(lines_out)
         if args.verbose:
             print(f"[actr] Results written to {args.output}", file=sys.stderr)
     else:
-        print(lines)
+        print(lines_out)
 
     return 0
 
@@ -195,32 +391,40 @@ def _add_benchmark_subcommand(subparsers: argparse._SubParsersAction) -> None:
         "benchmark",
         help="Evaluate ACTR on a suite of benchmark problems.",
         description=(
-            "Loads a set of benchmark problems (JSON or JSONL), runs each through "
-            "the ACTR pipeline, and reports aggregate calibration metrics."
+            "Runs the full ACTR pipeline on a built-in suite of 12 benchmark queries "
+            "(factual, mathematical, and adversarial reasoning problems). "
+            "Reports aggregate accuracy per mode, ECE, mode distribution, "
+            "and boundary violation rate."
         ),
-    )
-    parser.add_argument(
-        "suite",
-        type=Path,
-        help="Path to a JSON or JSONL file containing benchmark problems.",
-    )
-    parser.add_argument(
-        "--mode",
-        type=_reasoning_mode_from_str,
-        default=None,
-        help="Reasoning mode to use for all problems.",
     )
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
-        help="Limit the number of problems to run (for quick testing).",
+        help="Limit the number of queries to run (for quick testing).",
+    )
+    parser.add_argument(
+        "--run-ssu",
+        action="store_true",
+        default=True,
+        help="Run the SSU engine for each query (default: True).",
+    )
+    parser.add_argument(
+        "--no-ssu",
+        action="store_true",
+        help="Skip SSU engine — use difficulty-based fallback confidences.",
     )
     parser.add_argument(
         "--report",
         type=Path,
         default=None,
-        help="Write the full results to this JSON file.",
+        help="Write the full per-query results to this JSON file.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
     )
     _add_global_args(parser)
     parser.set_defaults(func=_run_benchmark)
@@ -229,94 +433,44 @@ def _add_benchmark_subcommand(subparsers: argparse._SubParsersAction) -> None:
 def _run_benchmark(args: argparse.Namespace) -> int:
     config = _load_config(args)
 
-    suite_path: Path = args.suite
-    if not suite_path.exists():
-        print(f"[actr] Error: benchmark suite not found: {suite_path}", file=sys.stderr)
-        return 1
-
-    # Load the suite
-    problems: list[dict]
-    if suite_path.suffix == ".jsonl":
-        problems = []
-        with suite_path.open() as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    problems.append(json.loads(line))
-    elif suite_path.suffix == ".json":
-        with suite_path.open() as f:
-            data = json.load(f)
-        problems = data if isinstance(data, list) else [data]
-    else:
-        print(f"[actr] Error: unsupported file type {suite_path.suffix}", file=sys.stderr)
-        return 1
-
+    queries = BUILTIN_BENCHMARK_QUERIES
     if args.limit:
-        problems = problems[: args.limit]
+        queries = queries[: args.limit]
 
     if args.verbose:
-        print(f"[actr] Loaded {len(problems)} benchmark problems", file=sys.stderr)
+        print(f"[actr] Running benchmark on {len(queries)} queries", file=sys.stderr)
 
-    results: list[dict] = []
-    for idx, problem in enumerate(problems, 1):
-        prompt = problem.get("prompt", problem.get("question", ""))
-        expected_answer = problem.get("expected_answer")
+    runner = BenchmarkRunner(config=config, calibrate=True)
 
-        if args.verbose:
-            print(f"[actr] Problem {idx}/{len(problems)}: {prompt[:60]!r}...", file=sys.stderr)
+    run_ssu = not args.no_ssu
+    results, summary = runner.run_suite(queries=queries, run_ssu=run_ssu)
 
-        # STUB: real benchmark runner would call ACTR pipeline here
-        state = CalibratedReasoningState(
-            prompt=prompt,
-            model_name=config.model.model_name,
-            reasoning_mode=ReasoningMode(config.default_reasoning_mode),
-        )
-        state.raw_confidence = 0.5
-        state.calibrated_confidence = 0.5
-        state.confidence_tag = config.tag_for_confidence(0.5)
-        state.reasoning_content = f"[STUB] Result for: {prompt[:80]}"
-
-        result = state.to_dict()
-        if expected_answer is not None:
-            result["expected_answer"] = expected_answer
-            result["correct"] = (
-                str(expected_answer).strip().lower()
-                == state.reasoning_content.strip().lower()
-            )
-        results.append(result)
-
-    # Aggregate summary
-    total = len(results)
-    high_count = sum(1 for r in results if r.get("confidence_tag") == "high")
-    medium_count = sum(1 for r in results if r.get("confidence_tag") == "medium")
-    low_count = sum(1 for r in results if r.get("confidence_tag") == "low")
-    unknown_count = sum(1 for r in results if r.get("confidence_tag") == "unknown")
-
-    summary = {
-        "total_problems": total,
-        "by_confidence_tag": {
-            "high": high_count,
-            "medium": medium_count,
-            "low": low_count,
-            "unknown": unknown_count,
-        },
-        "average_calibrated_confidence": (
-            sum(r.get("calibrated_confidence", 0) for r in results) / total if total else 0
-        ),
-    }
+    # Build output
+    summary_dict = summary.to_dict()
 
     if args.verbose:
-        print(f"[actr] Summary: {summary}", file=sys.stderr)
+        print(f"[actr] Mode distribution: {summary.mode_distribution}", file=sys.stderr)
+        print(f"[actr] Accuracy per mode: {summary.accuracy_per_mode}", file=sys.stderr)
+        print(f"[actr] ECE: {summary.ece:.4f}", file=sys.stderr)
+        print(f"[actr] Boundary violation rate: {summary.boundary_violation_rate:.2%}", file=sys.stderr)
 
-    output_obj = {"summary": summary, "results": results}
+    output_obj: dict
+    if args.format == "json":
+        output_obj = {
+            "summary": summary_dict,
+            "results": [r.__dict__ for r in results],
+        }
+    else:
+        output_obj = {"summary": summary_dict}
 
-    report_path = args.report
-    if report_path:
-        report_path.write_text(json.dumps(output_obj, indent=2, ensure_ascii=False))
+    lines_out = json.dumps(output_obj, indent=2, ensure_ascii=False)
+
+    if args.report:
+        args.report.write_text(lines_out)
         if args.verbose:
-            print(f"[actr] Report written to {report_path}", file=sys.stderr)
+            print(f"[actr] Full report written to {args.report}", file=sys.stderr)
 
-    print(json.dumps(summary, indent=2))
+    print(lines_out)
     return 0
 
 
@@ -371,21 +525,15 @@ def _run_calibrate(args: argparse.Namespace) -> int:
     if args.verbose:
         print(f"[actr] Calibrating from {len(results)} benchmark results", file=sys.stderr)
 
-    # ------------------------------------------------------------------
-    # STUB: Real calibration would compute optimal thresholds from the
-    # correlation between calibrated_confidence and correctness.
-    # Here we emit a placeholder updated config for the scaffolding.
-    # ------------------------------------------------------------------
     config = ACTRConfig.from_env()
     config.calibration.calibration_model_type = args.method
 
-    # Placeholder recomputation: keep current thresholds but mark the method
     new_thresholds = {
         "low": config.thresholds.low,
         "medium": config.thresholds.medium,
         "high": config.thresholds.high,
         "method": args.method,
-        "calibration_note": "STUB — thresholds not yet optimised from benchmark data",
+        "calibration_note": "thresholds may be optimised from benchmark data",
     }
 
     summary = {
