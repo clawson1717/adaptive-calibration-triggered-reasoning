@@ -404,7 +404,7 @@ class TestCLIHelp:
     def test_cli_reason_command_accepts_prompt(self):
         src_cli = Path(__file__).parent.parent / "src" / "actr" / "cli.py"
         result = subprocess.run(
-            [sys.executable, str(src_cli), "reason", "What is 2+2?"],
+            [sys.executable, str(src_cli), "reason", "--format", "json", "What is 2+2?"],
             capture_output=True,
             text=True,
         )

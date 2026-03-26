@@ -23,6 +23,13 @@ from actr.ssu import (
     EmbeddingSimilarity,
     VerbalizedConfidenceExtractor,
 )
+from actr.benchmark import (
+    BenchmarkRunner,
+    BenchmarkQuery,
+    BenchmarkResult,
+    BenchmarkSummary,
+    BUILTIN_BENCHMARK_QUERIES,
+)
 
 __all__ = [
     "__version__",
@@ -38,4 +45,9 @@ __all__ = [
     "SSUResult",
     "EmbeddingSimilarity",
     "VerbalizedConfidenceExtractor",
+    "BenchmarkRunner",
+    "BenchmarkQuery",
+    "BenchmarkResult",
+    "BenchmarkSummary",
+    "BUILTIN_BENCHMARK_QUERIES",
 ]

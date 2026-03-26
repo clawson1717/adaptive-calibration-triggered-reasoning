@@ -1,6 +1,7 @@
 README.md
 pyproject.toml
 src/actr/__init__.py
+src/actr/benchmark.py
 src/actr/calibration.py
 src/actr/cli.py
 src/actr/mode_controller.py
@@ -15,11 +16,16 @@ src/actr.egg-info/top_level.txt
 src/actr/config/__init__.py
 src/actr/data/__init__.py
 src/actr/pipelines/__init__.py
+src/actr/pipelines/boundary_enforcement.py
 src/actr/pipelines/fast_pipeline.py
+src/actr/pipelines/moderate_pipeline.py
 src/actr/pipelines/slow_pipeline.py
+tests/test_boundary_enforcement.py
 tests/test_calibration.py
 tests/test_fast_pipeline.py
+tests/test_integration.py
 tests/test_mode_controller.py
+tests/test_moderate_pipeline.py
 tests/test_scaffolding.py
 tests/test_slow_pipeline.py
 tests/test_ssu.py
