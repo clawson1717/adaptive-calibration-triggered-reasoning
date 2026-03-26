@@ -18,7 +18,7 @@ Most LLM systems apply a fixed reasoning strategy regardless of query difficulty
 - [x] Step 7: Slow Mode pipeline
 - [x] Step 8: Box Maze Boundary Enforcement Layer
 - [x] Step 9: Integration + end-to-end tests
-- [ ] Step 10: Calibration evaluation
+- [x] Step 10: Calibration evaluation [DONE ✅]
 
 ## Architecture
 
