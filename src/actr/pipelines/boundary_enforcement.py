@@ -14,7 +14,12 @@ from typing import Any
 
 from actr.data import CalibratedReasoningState, ReasoningMode
 
-__all__ = ["BoundaryEnforcementLayer", "BoundaryEnforcementConfig"]
+__all__ = [
+    "BoundaryEnforcementLayer",
+    "BoundaryEnforcementConfig",
+    "_MAX_REASONING_LENGTH",
+    "_expected_reasoning_mode",
+]
 
 
 # Architecture-specified mode boundaries for mode mismatch detection
